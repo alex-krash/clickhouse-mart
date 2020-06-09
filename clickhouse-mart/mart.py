@@ -45,7 +45,12 @@ class AbstractMartProcessor(ABC):
 
         self.prepare_temp_table(temp_table_name)
 
-        for i in range(self.shards_count()):
+        shard_count = self.shards_count()
+
+        if shard_count <= 0:
+            raise RuntimeError("Bad configuration: shard count should be >= 1, but '{}' is given".format(shard_count))
+
+        for i in range(shard_count):
             self.populate_data_for_shard(temp_table_name, partition_object, i)
 
         self.clean_partition_on_cluster(partition_object)
@@ -75,6 +80,7 @@ class AbstractMartProcessor(ABC):
         if not len(engine_ddl):
             raise RuntimeError("Destination table '{}' not found".format(self.table))
 
+        # replace ReplicatedReplacingMergeTree('path', 'replica') -> ReplacingMergeTree
         engine_ddl = engine_ddl[0][0]
         engine_ddl = re.sub(r'Replicated(?P<engine>\w+)\(.*\)', '\g<engine>', engine_ddl)
 
@@ -123,10 +129,17 @@ class MartProcessor(AbstractMartProcessor):
         AbstractMartProcessor.__init__(self, client, cluster)
         self.__table = table
         self.__query = query
+        self.__shards = 1
 
     @property
     def table(self) -> Table:
         return self.__table
+
+    def shards_count(self) -> int:
+        return self.__shards
+
+    def set_shards(self, shard_count : int):
+        self.__shards = shard_count
 
     def population_query(self, partition, shard_number: int) -> str:
         return self.__query.format(partition=partition, shard=shard_number)
